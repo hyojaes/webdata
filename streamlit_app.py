@@ -224,8 +224,7 @@ if dataset == "AI in Agile 설문":
         df_f = df_f[df_f["AIFamiliarity"].isin(sel_fams)]
 
     # KPI
-    k1,k2,k3,k4 = st.columns(4)
-    with k1: st.metric("응답 수", len(df_f))
+    k2,k3,k4 = st.columns(4)
     with k2:
         if "AIUsedBefore" in df_f.columns and len(df_f) > 0:
             used_rate = (df_f["AIUsedBefore"].astype(str).str.lower().isin(["yes","y","true","1"]).mean()*100)
