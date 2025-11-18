@@ -164,6 +164,8 @@ st.sidebar.header("데이터 소스 설정")
 
 # 앱 파일과 같은 폴더 기준 상대 경로
 DEFAULT_SO = "data/survey_results_public.csv"
+# 너가 만든 1000행 + 속도 컬럼 데이터로 기본값 쓰고 싶으면 아래 파일명 맞춰서 저장
+# 예: augmented_ai_agile_survey_1000_with_speedup.csv
 DEFAULT_AI = "data/Survey on Integrating Artificial Intelligence Tools within Agile Frameworks for Enhanced Software Development (Responses) - Sheet1.csv"
 
 dataset = st.sidebar.radio("분석 대상", ["AI in Agile 설문", "Stack Overflow 2023"], index=0, key="dataset_radio")
@@ -173,7 +175,7 @@ dataset = st.sidebar.radio("분석 대상", ["AI in Agile 설문", "Stack Overfl
 # ------------------------------
 if dataset == "AI in Agile 설문":
     st.title("AI in Agile 설문 분석")
-    st.caption("AI 도구 사용 경험/유형, 기대효과·우려, 도입 의향, 교차표 포함")
+    st.caption("AI 도구 사용 경험/유형, 기대효과·우려, 도입 의향, 코딩 속도 향상")
 
     # 업로드/경로
     up = st.sidebar.file_uploader("AI 설문 CSV 업로드", type=["csv"], key="ai_csv")
@@ -181,7 +183,7 @@ if dataset == "AI in Agile 설문":
     require_file(path, "AI 설문")
     ai = load_csv(path)
 
-    # 컬럼명 축약
+    # 컬럼명 축약 + 새 컬럼 매핑
     mapper = {
         'Current Role: ': 'Role',
         'Familiarity with Agile Frameworks:': 'AgileFamiliarity',
@@ -190,12 +192,23 @@ if dataset == "AI in Agile 설문":
         'If yes, please specify the types of artificial intelligence tools you have used (check all that apply):': 'AIToolsUsed',
         'How do you perceive the potential benefits of integrating AI...e frameworks for software development? (Check all that apply):': 'Benefits',
         'What challenges do you foresee in integrating AI tools within agile frameworks? (Check all that apply):': 'Challenges',
-        'On a scale of 1 to 5, how willing would you be to adopt AI tools within your agile development processes?': 'Willingness'
+        'On a scale of 1 to 5, how willing would you be to adopt AI tools within your agile development processes?': 'Willingness',
+        # 새 컬럼
+        'AI sped up coding': 'AISpeedUp',
     }
     ai = ai.rename(columns={k: v for k, v in mapper.items() if k in ai.columns})
 
     # 결측치 정리
-    for col in ["Role","AgileFamiliarity","AIFamiliarity","AIUsedBefore","AIToolsUsed","Benefits","Challenges"]:
+    for col in [
+        "Role",
+        "AgileFamiliarity",
+        "AIFamiliarity",
+        "AIUsedBefore",
+        "AIToolsUsed",
+        "Benefits",
+        "Challenges",
+        "AISpeedUp",
+    ]:
         if col in ai.columns:
             ai[col] = ai[col].fillna("")
 
@@ -204,7 +217,7 @@ if dataset == "AI in Agile 설문":
 
     # 미리보기
     with st.expander("데이터 미리보기 / 스키마"):
-        c1, c2 = st.columns([2,1])
+        c1, c2 = st.columns([2, 1])
         with c1:
             st.dataframe(ai.head(20))
         with c2:
@@ -212,10 +225,14 @@ if dataset == "AI in Agile 설문":
             st.write("컬럼:", list(ai.columns))
 
     # 필터
-    roles = sorted([r for r in ai.get("Role", pd.Series(dtype=str)).dropna().unique() if r]) if "Role" in ai.columns else []
-    fams  = sorted([r for r in ai.get("AIFamiliarity", pd.Series(dtype=str)).dropna().unique() if r]) if "AIFamiliarity" in ai.columns else []
+    roles = sorted(
+        [r for r in ai.get("Role", pd.Series(dtype=str)).dropna().unique() if r]
+    ) if "Role" in ai.columns else []
+    fams = sorted(
+        [r for r in ai.get("AIFamiliarity", pd.Series(dtype=str)).dropna().unique() if r]
+    ) if "AIFamiliarity" in ai.columns else []
     sel_roles = st.sidebar.multiselect("역할(Role)", roles, default=[], key="roles_ms")
-    sel_fams  = st.sidebar.multiselect("AI 도구 친숙도", fams, default=[], key="fams_ms")
+    sel_fams = st.sidebar.multiselect("AI 도구 친숙도", fams, default=[], key="fams_ms")
 
     df_f = ai.copy()
     if sel_roles and "Role" in df_f.columns:
@@ -223,24 +240,52 @@ if dataset == "AI in Agile 설문":
     if sel_fams and "AIFamiliarity" in df_f.columns:
         df_f = df_f[df_f["AIFamiliarity"].isin(sel_fams)]
 
-    # KPI
-    k2,k3,k4 = st.columns(3)
-    with k2:
+    # KPI 영역
+    k1, k2, k3, k4 = st.columns(4)
+
+    # AI 사용 경험률
+    with k1:
         if "AIUsedBefore" in df_f.columns and len(df_f) > 0:
-            used_rate = (df_f["AIUsedBefore"].astype(str).str.lower().isin(["yes","y","true","1"]).mean()*100)
+            used_rate = (
+                df_f["AIUsedBefore"]
+                .astype(str)
+                .str.lower()
+                .isin(["yes", "y", "true", "1"])
+                .mean()
+                * 100
+            )
             st.metric("AI 사용 경험률(%)", f"{used_rate:.1f}")
         else:
             st.metric("AI 사용 경험률(%)", "N/A")
-    with k3:
+
+    # 평균 도입 의향
+    with k2:
         if "Willingness" in df_f.columns and df_f["Willingness"].notna().any():
             st.metric("평균 도입 의향(1~5)", f"{df_f['Willingness'].mean():.2f}")
         else:
             st.metric("평균 도입 의향(1~5)", "N/A")
-    with k4:
+
+    # 도입 의향 중앙값
+    with k3:
         if "Willingness" in df_f.columns and df_f["Willingness"].notna().any():
-            st.metric("의향 중앙값", f"{df_f['Willingness'].median():.2f}")
+            st.metric("도입 의향 중앙값", f"{df_f['Willingness'].median():.2f}")
         else:
-            st.metric("의향 중앙값", "N/A")
+            st.metric("도입 의향 중앙값", "N/A")
+
+    # 코딩 속도 향상 체감률
+    with k4:
+        if "AISpeedUp" in df_f.columns and len(df_f) > 0:
+            speed_rate = (
+                df_f["AISpeedUp"]
+                .astype(str)
+                .str.lower()
+                .isin(["yes", "y", "true", "1"])
+                .mean()
+                * 100
+            )
+            st.metric("코딩 속도 향상 체감률(%)", f"{speed_rate:.1f}")
+        else:
+            st.metric("코딩 속도 향상 체감률(%)", "N/A")
 
     # 1) AI 사용 경험
     st.subheader("1) AI 사용 경험 분포")
@@ -252,15 +297,19 @@ if dataset == "AI in Agile 설문":
             bars = base.mark_bar().encode(
                 y=alt.Y("AIUsedBefore:N", sort="-x", title="경험 여부"),
                 x=alt.X("count:Q", title="응답 수"),
-                tooltip=["AIUsedBefore","count","percent"]
+                tooltip=["AIUsedBefore", "count", "percent"],
             )
             texts = base.mark_text(align="left", baseline="middle", dx=4).encode(
                 y=alt.Y("AIUsedBefore:N", sort="-x"),
                 x=alt.X("count:Q"),
-                text="count:Q"
+                text="count:Q",
             )
             st.altair_chart(bars + texts, use_container_width=True)
-        st.dataframe(d.rename(columns={"AIUsedBefore":"경험 여부","count":"응답 수","percent":"비율(%)"}))
+        st.dataframe(
+            d.rename(
+                columns={"AIUsedBefore": "경험 여부", "count": "응답 수", "percent": "비율(%)"}
+            )
+        )
 
     # 2) 사용한 AI 도구 유형 (한글화 + '-' 제거)
     st.subheader("2) 사용한 AI 도구 유형")
@@ -277,17 +326,17 @@ if dataset == "AI in Agile 설문":
                 bars2 = base2.mark_bar().encode(
                     y=alt.Y("Tool_ko_wrapped:N", sort="-x", title="도구"),
                     x=alt.X("count:Q", title="응답 수"),
-                    tooltip=["Tool_ko","count","percent"]
+                    tooltip=["Tool_ko", "count", "percent"],
                 )
                 texts2 = base2.mark_text(align="left", baseline="middle", dx=4).encode(
                     y=alt.Y("Tool_ko_wrapped:N", sort="-x"),
                     x=alt.X("count:Q"),
-                    text="count:Q"
+                    text="count:Q",
                 )
                 st.altair_chart(bars2 + texts2, use_container_width=True)
 
-            tbl2 = d2[["Tool_ko","count","percent"]].rename(
-                columns={"Tool_ko":"도구","count":"응답 수","percent":"비율(%)"}
+            tbl2 = d2[["Tool_ko", "count", "percent"]].rename(
+                columns={"Tool_ko": "도구", "count": "응답 수", "percent": "비율(%)"}
             )
             st.dataframe(safe_sort(tbl2, "응답 수", ascending=False))
 
@@ -302,25 +351,31 @@ if dataset == "AI in Agile 설문":
 
             vc3 = value_counts_pct(ben_ko)
             d3 = prep_for_chart(vc3, "Benefit_ko")
-            d3["Benefit_ko_wrapped"] = d3["Benefit_ko"].apply(lambda s: wrap_label(s, 16))
+            d3["Benefit_ko_wrapped"] = d3["Benefit_ko"].apply(
+                lambda s: wrap_label(s, 16)
+            )
 
             if not d3.empty:
                 base3 = alt.Chart(d3).properties(height=max(220, 28 * len(d3)))
                 bars3 = base3.mark_bar().encode(
                     y=alt.Y("Benefit_ko_wrapped:N", sort="-x", title="기대 효과"),
                     x=alt.X("count:Q", title="응답 수"),
-                    tooltip=["Benefit_ko","count","percent"]
+                    tooltip=["Benefit_ko", "count", "percent"],
                 )
                 texts3 = base3.mark_text(align="left", baseline="middle", dx=4).encode(
                     y=alt.Y("Benefit_ko_wrapped:N", sort="-x"),
                     x=alt.X("count:Q"),
-                    text="count:Q"
+                    text="count:Q",
                 )
                 st.altair_chart(bars3 + texts3, use_container_width=True)
 
             st.dataframe(
-                d3[["Benefit_ko","count","percent"]].rename(
-                    columns={"Benefit_ko":"기대 효과(한글)","count":"응답 수","percent":"비율(%)"}
+                d3[["Benefit_ko", "count", "percent"]].rename(
+                    columns={
+                        "Benefit_ko": "기대 효과(한글)",
+                        "count": "응답 수",
+                        "percent": "비율(%)",
+                    }
                 )
             )
 
@@ -335,24 +390,26 @@ if dataset == "AI in Agile 설문":
 
             vc4 = value_counts_pct(ch_ko)
             d4 = prep_for_chart(vc4, "Challenge_ko")
-            d4["Challenge_ko_wrapped"] = d4["Challenge_ko"].apply(lambda s: wrap_label(s, 16))
+            d4["Challenge_ko_wrapped"] = d4["Challenge_ko"].apply(
+                lambda s: wrap_label(s, 16)
+            )
 
             if not d4.empty:
                 base4 = alt.Chart(d4).properties(height=max(220, 28 * len(d4)))
                 bars4 = base4.mark_bar().encode(
                     y=alt.Y("Challenge_ko_wrapped:N", sort="-x", title="장애요인"),
                     x=alt.X("count:Q", title="응답 수"),
-                    tooltip=["Challenge_ko","count","percent"]
+                    tooltip=["Challenge_ko", "count", "percent"],
                 )
                 texts4 = base4.mark_text(align="left", baseline="middle", dx=4).encode(
                     y=alt.Y("Challenge_ko_wrapped:N", sort="-x"),
                     x=alt.X("count:Q"),
-                    text="count:Q"
+                    text="count:Q",
                 )
                 st.altair_chart(bars4 + texts4, use_container_width=True)
 
-            tbl4 = d4[["Challenge_ko","count","percent"]].rename(
-                columns={"Challenge_ko":"장애요인(한글)","count":"응답 수","percent":"비율(%)"}
+            tbl4 = d4[["Challenge_ko", "count", "percent"]].rename(
+                columns={"Challenge_ko": "장애요인(한글)", "count": "응답 수", "percent": "비율(%)"}
             )
             st.dataframe(safe_sort(tbl4, "응답 수", ascending=False))
 
@@ -366,23 +423,53 @@ if dataset == "AI in Agile 설문":
             chart5 = alt.Chart(d5).mark_bar().encode(
                 x=alt.X("Score:O", title="도입 의향 점수"),
                 y=alt.Y("count:Q", title="응답 수"),
-                tooltip=["Score","count","percent"]
+                tooltip=["Score", "count", "percent"],
             )
             st.altair_chart(chart5, use_container_width=True)
 
-            tbl5 = d5.rename(columns={"Score":"점수","count":"응답 수","percent":"비율(%)"})
+            tbl5 = d5.rename(
+                columns={"Score": "점수", "count": "응답 수", "percent": "비율(%)"}
+            )
             st.dataframe(safe_sort(tbl5, "점수"))
         else:
             st.info("유효한 도입 의향 데이터가 없습니다.")
     else:
         st.info("도입 의향(Willingness) 컬럼이 없거나 값이 없습니다.")
 
+    # 6) AI 사용 후 코딩 속도 향상 여부
+    st.subheader("6) AI 사용 후 코딩 속도 향상 여부")
+    if "AISpeedUp" in df_f.columns:
+        vc6 = value_counts_pct(df_f["AISpeedUp"])
+        d6 = prep_for_chart(vc6, "AISpeedUp")
+
+        if not d6.empty:
+            base6 = alt.Chart(d6).properties(height=200)
+            bars6 = base6.mark_bar().encode(
+                y=alt.Y("AISpeedUp:N", sort="-x", title="코딩 속도 향상 여부"),
+                x=alt.X("count:Q", title="응답 수"),
+                tooltip=["AISpeedUp", "count", "percent"],
+            )
+            texts6 = base6.mark_text(align="left", baseline="middle", dx=4).encode(
+                y=alt.Y("AISpeedUp:N", sort="-x"),
+                x=alt.X("count:Q"),
+                text="count:Q",
+            )
+            st.altair_chart(bars6 + texts6, use_container_width=True)
+
+        st.dataframe(
+            d6.rename(
+                columns={"AISpeedUp": "코딩 속도 향상 여부", "count": "응답 수", "percent": "비율(%)"}
+            )
+        )
+    else:
+        st.info("'AI sped up coding' 컬럼(AISpeedUp)이 데이터에 없습니다.")
+
     # 다운로드
     st.download_button(
         "🔽 현재 필터 결과 CSV 다운로드",
         data=df_f.to_csv(index=False).encode("utf-8-sig"),
         file_name="ai_agile_filtered.csv",
-        mime="text/csv"
+        mime="text/csv",
     )
 
 # ------------------------------
@@ -398,17 +485,25 @@ else:
     so = load_csv(path)
 
     with st.expander("데이터 미리보기 / 스키마"):
-        c1, c2 = st.columns([2,1])
+        c1, c2 = st.columns([2, 1])
         with c1:
             st.dataframe(so.head(20))
         with c2:
             st.write({"rows": int(so.shape[0]), "cols": int(so.shape[1])})
             st.write("컬럼:", list(so.columns))
 
-    countries = sorted([c for c in so.get("Country", pd.Series(dtype=str)).dropna().unique() if c]) if "Country" in so.columns else []
-    sel_countries = st.sidebar.multiselect("국가", countries, default=[], key="country_ms")
-    orgs = sorted([o for o in so.get("OrgSize", pd.Series(dtype=str)).dropna().unique() if o]) if "OrgSize" in so.columns else []
-    sel_orgs = st.sidebar.multiselect("조직 규모", orgs, default=[], key="org_ms")
+    countries = sorted(
+        [c for c in so.get("Country", pd.Series(dtype=str)).dropna().unique() if c]
+    ) if "Country" in so.columns else []
+    sel_countries = st.sidebar.multiselect(
+        "국가", countries, default=[], key="country_ms"
+    )
+    orgs = sorted(
+        [o for o in so.get("OrgSize", pd.Series(dtype=str)).dropna().unique() if o]
+    ) if "OrgSize" in so.columns else []
+    sel_orgs = st.sidebar.multiselect(
+        "조직 규모", orgs, default=[], key="org_ms"
+    )
 
     so_f = so.copy()
     if sel_countries and "Country" in so_f.columns:
@@ -432,16 +527,18 @@ else:
                 bars = base.mark_bar().encode(
                     y=alt.Y("DevType_ko_wrapped:N", sort="-x", title="직무"),
                     x=alt.X("count:Q", title="응답 수"),
-                    tooltip=["DevType_ko","count","percent"]
+                    tooltip=["DevType_ko", "count", "percent"],
                 )
                 texts = base.mark_text(align="left", baseline="middle", dx=4).encode(
                     y=alt.Y("DevType_ko_wrapped:N", sort="-x"),
                     x=alt.X("count:Q"),
-                    text="count:Q"
+                    text="count:Q",
                 )
                 st.altair_chart(bars + texts, use_container_width=True)
 
-            tbl_dev = d.rename(columns={"DevType_ko":"직무","count":"응답 수","percent":"비율(%)"})
+            tbl_dev = d.rename(
+                columns={"DevType_ko": "직무", "count": "응답 수", "percent": "비율(%)"}
+            )
             st.dataframe(safe_sort(tbl_dev, "응답 수", ascending=False))
 
     # 2) LanguageHaveWorkedWith (가로 막대)
@@ -459,21 +556,27 @@ else:
                 bars2 = base2.mark_bar().encode(
                     y=alt.Y("Language_wrapped:N", sort="-x", title="언어"),
                     x=alt.X("count:Q", title="응답 수"),
-                    tooltip=["Language","count","percent"]
+                    tooltip=["Language", "count", "percent"],
                 )
                 texts2 = base2.mark_text(align="left", baseline="middle", dx=4).encode(
                     y=alt.Y("Language_wrapped:N", sort="-x"),
                     x=alt.X("count:Q"),
-                    text="count:Q"
+                    text="count:Q",
                 )
                 st.altair_chart(bars2 + texts2, use_container_width=True)
 
-            st.dataframe(d2.rename(columns={"Language":"언어","count":"응답 수","percent":"비율(%)"}).pipe(lambda x: safe_sort(x, "응답 수", ascending=False)))
+            st.dataframe(
+                d2.rename(
+                    columns={"Language": "언어", "count": "응답 수", "percent": "비율(%)"}
+                ).pipe(lambda x: safe_sort(x, "응답 수", ascending=False))
+            )
 
     # 3) YearsCodePro
     st.subheader("3) 경력(YearsCodePro) 분포")
     if "YearsCodePro" in so_f.columns:
-        y = so_f["YearsCodePro"].replace({"Less than 1 year": "0", "More than 50 years": "51"})
+        y = so_f["YearsCodePro"].replace(
+            {"Less than 1 year": "0", "More than 50 years": "51"}
+        )
         y_num = pd.to_numeric(y, errors="coerce").dropna()
         vc3 = value_counts_pct(y_num)
         d3 = prep_for_chart(vc3, "Years")
@@ -481,17 +584,19 @@ else:
             chart3 = alt.Chart(d3).mark_bar().encode(
                 x=alt.X("Years:Q", title="경력(년)"),
                 y=alt.Y("count:Q", title="응답 수"),
-                tooltip=["Years","count","percent"]
+                tooltip=["Years", "count", "percent"],
             )
             st.altair_chart(chart3, use_container_width=True)
-        st.dataframe(d3.rename(columns={"Years":"경력(년)","count":"응답 수","percent":"비율(%)"}).pipe(lambda x: safe_sort(x, "Years")))
+        st.dataframe(
+            d3.rename(
+                columns={"Years": "경력(년)", "count": "응답 수", "percent": "비율(%)"}
+            ).pipe(lambda x: safe_sort(x, "Years"))
+        )
 
     # 다운로드
     st.download_button(
         "🔽 현재 필터 결과 CSV 다운로드",
         data=so_f.to_csv(index=False).encode("utf-8-sig"),
         file_name="so2023_filtered.csv",
-        mime="text/csv"
+        mime="text/csv",
     )
-
-
